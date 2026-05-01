@@ -25,6 +25,7 @@ jobs:
             "https://github.com/gradle/gradle/raw/v8.1.1/gradle/wrapper/gradle-wrapper.jar"
       - name: Build
         run: |
+          sudo apt-get install -y dos2unix
           chmod +x gradlew
           dos2unix gradlew
           ./gradlew assembleDebug --no-daemon
