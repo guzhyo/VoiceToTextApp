@@ -10,13 +10,24 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - uses: android-actions/setup-android@v3
-      - name: Generate Gradle Wrapper
+      - name: Create Gradle Wrapper
         run: |
-          gradle wrapper --gradle-version 8.1.1
-          dos2unix gradlew
-          chmod +x gradlew
+          mkdir -p gradle/wrapper
+          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.1.1-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+          # Download wrapper jar
+          curl -sL -o gradle/wrapper/gradle-wrapper.jar \
+            "https://github.com/gradle/gradle/raw/v8.1.1/gradle/wrapper/gradle-wrapper.jar"
       - name: Build
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          chmod +x gradlew
+          dos2unix gradlew
+          ./gradlew assembleDebug --no-daemon
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
