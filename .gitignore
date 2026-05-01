@@ -1,5 +1,9 @@
 *.iml
 .gradle
 /build
-app/build
-local.properties
+/app/build
+/local.properties
+.DS_Store
+/captures
+.externalNativeBuild
+.cxx
