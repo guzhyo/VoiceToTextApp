@@ -3,8 +3,7 @@ package com.voicetotext.app
 import android.content.Context
 import android.util.Log
 import java.io.File
-import java.util.zip.GZIPInputStream
-import java.util.zip.TarInputStream
+import java.util.zip.ZipInputStream
 
 /**
  * 模型管理 — 从 assets 解压模型、管理模型目录
@@ -20,7 +19,7 @@ object ModelManager {
             id = "vosk-model-small-cn-0.22",
             name = "中文（小模型）",
             size = "~66MB",
-            assetPath = "models/vosk-model-small-cn-0.22.tar.gz"
+            assetFile = "models/vosk-model-small-cn-0.22.zip"
         )
     )
 
@@ -35,7 +34,7 @@ object ModelManager {
         return modelDir.exists() && File(modelDir, "am").exists()
     }
 
-    /** 从 assets 解压模型（tar.gz）到 filesDir */
+    /** 从 assets 解压 zip 模型到 filesDir */
     fun extractModelFromAssets(context: Context, modelId: String): Boolean {
         val destDir = File(getModelDir(context), modelId)
         if (destDir.exists()) {
@@ -43,41 +42,28 @@ object ModelManager {
             return true
         }
 
-        val assetPath = "models/$modelId.tar.gz"
+        val assetPath = "models/$modelId.zip"
         return try {
             destDir.mkdirs()
 
-            // 从 assets 打开 tar.gz 文件
             context.assets.open(assetPath).use { input ->
-                GZIPInputStream(input).use { gzip ->
-                    TarInputStream(gzip).use { tar ->
-                        var entry = tar.nextEntry
-                        while (entry != null) {
-                            val name = entry.name
-                            // tar 包里的路径可能是 vosk-model-small-cn-0.22/am/final.mdl
-                            // 去掉顶层目录
-                            val relativeName = name.substringAfter("/")
-                            if (relativeName.isEmpty()) {
-                                entry = tar.nextEntry
-                                continue
+                ZipInputStream(input).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val outFile = File(destDir, entry.name)
+                            outFile.parentFile?.mkdirs()
+                            outFile.outputStream().use { out ->
+                                zis.copyTo(out)
                             }
-
-                            val outFile = File(destDir, relativeName)
-                            if (entry.isDirectory) {
-                                outFile.mkdirs()
-                            } else {
-                                outFile.parentFile?.mkdirs()
-                                outFile.outputStream().use { out ->
-                                    tar.copyTo(out)
-                                }
-                            }
-                            entry = tar.nextEntry
                         }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
                     }
                 }
             }
 
-            // 验证解压结果
+            // 验证
             val amFile = File(destDir, "am/final.mdl")
             if (!amFile.exists()) {
                 Log.e(TAG, "模型解压后关键文件缺失: $modelId")
@@ -116,5 +102,5 @@ data class ModelInfo(
     val id: String,
     val name: String,
     val size: String,
-    val assetPath: String
+    val assetFile: String
 )

@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import org.vosk.Recognizer
 import java.io.*
+import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -229,8 +230,8 @@ class MainActivity : AppCompatActivity() {
                 while (isRecording && rec != null) {
                     val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                     if (bytesRead > 0) {
-                        if (rec.acceptWaveform(buffer, bytesRead)) {
-                            val partial = rec.partialResult
+                        if (rec.acceptWaveForm(buffer, bytesRead)) {
+                            val partial = rec.getPartialResult()
                             val text = voskEngine.extractText(partial)
                             if (text.isNotEmpty()) {
                                 runOnUiThread {
@@ -265,10 +266,10 @@ class MainActivity : AppCompatActivity() {
         recognizeThread?.join(2000)
 
         try {
-            val finalJson = currentRecognizer?.finalResult ?: "{}"
+            val finalJson = currentRecognizer?.getFinalResult() ?: "{}"
             val finalText = voskEngine.extractText(finalJson)
 
-            val partialJson = currentRecognizer?.partialResult ?: "{}"
+            val partialJson = currentRecognizer?.getPartialResult() ?: "{}"
             val partialText = voskEngine.extractText(partialJson)
 
             val resultText = if (finalText.isNotEmpty()) finalText else partialText
@@ -373,11 +374,15 @@ class MainActivity : AppCompatActivity() {
             extractor.selectTrack(audioTrackIndex)
 
             val byteArrayOutputStream = ByteArrayOutputStream()
-            val buffer = ByteArray(4096)
+            val buf = ByteBuffer.allocate(65536)
             var bytesRead: Int
-            while (extractor.readSampleData(buffer, 0).also { bytesRead = it } >= 0) {
-                byteArrayOutputStream.write(buffer, 0, bytesRead)
+            while (extractor.readSampleData(buf, 0).also { bytesRead = it } >= 0) {
+                val chunk = ByteArray(bytesRead)
+                buf.rewind()
+                buf.get(chunk, 0, bytesRead)
+                byteArrayOutputStream.write(chunk)
                 extractor.advance()
+                buf.clear()
             }
             writeWavFile(outputPath, byteArrayOutputStream.toByteArray(), 16000)
         } finally {

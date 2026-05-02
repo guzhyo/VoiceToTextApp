@@ -28,18 +28,14 @@ class VoskEngine {
     /** 加载模型 */
     fun loadModel(modelPath: String): Boolean {
         return try {
-            // 检查路径是否存在
             val modelDir = File(modelPath)
             if (!modelDir.exists() || !modelDir.isDirectory) {
                 Log.e(TAG, "模型路径不存在: $modelPath")
                 return false
             }
-
-            // 关闭旧模型
             model?.close()
             model = null
             currentModelPath = null
-
             model = Model(modelPath)
             currentModelPath = modelPath
             Log.i(TAG, "模型加载成功: $modelPath")
@@ -50,7 +46,7 @@ class VoskEngine {
         }
     }
 
-    /** 创建新的 Recognizer（每次录音/识别用新的实例） */
+    /** 创建新的 Recognizer（每次录音/识别用新实例） */
     fun createRecognizer(granularity: Boolean = true): Recognizer? {
         recognizer?.close()
         recognizer = null
@@ -69,9 +65,7 @@ class VoskEngine {
 
     /** 释放当前 Recognizer */
     fun closeRecognizer() {
-        try {
-            recognizer?.close()
-        } catch (_: Exception) {}
+        try { recognizer?.close() } catch (_: Exception) {}
         recognizer = null
     }
 
@@ -83,21 +77,18 @@ class VoskEngine {
         currentModelPath = null
     }
 
-    /** 从 JSON 结果中提取文字 */
+    /** 从 JSON 结果中提取 text 字段 */
     fun extractText(jsonResult: String): String {
         return try {
-            val sb = StringBuilder()
-            // 简单的 JSON 解析，提取 "text" 字段的值
+            // 格式: {"text": "你好世界"}
             val textMatch = Regex("\"text\"\\s*:\\s*\"([^\"]*)\"").find(jsonResult)
             textMatch?.groupValues?.getOrNull(1) ?: ""
-        } catch (_: Exception) {
-            ""
-        }
+        } catch (_: Exception) { "" }
     }
 
     /**
      * 对 WAV 文件进行识别
-     * @param wavFile WAV 格式音频文件（16kHz, 16bit, mono）
+     * @param wavFile WAV 格式音频（16kHz, 16bit, mono）
      * @return 识别文字
      */
     fun recognizeFile(wavFile: File): String? {
@@ -105,15 +96,14 @@ class VoskEngine {
         val rec = createRecognizer(true) ?: return null
         return try {
             val fis = java.io.FileInputStream(wavFile)
-            // 跳过 WAV 文件头（44 字节）
-            fis.skip(44)
+            fis.skip(44)  // 跳过 WAV 文件头
             val buffer = ByteArray(4096)
             var bytesRead: Int
             while (fis.read(buffer).also { bytesRead = it } >= 0) {
-                rec.acceptWaveform(buffer, bytesRead)
+                rec.acceptWaveForm(buffer, bytesRead)
             }
             fis.close()
-            val finalResult = rec.finalResult
+            val finalResult = rec.getFinalResult()
             extractText(finalResult)
         } catch (e: Exception) {
             Log.e(TAG, "文件识别失败: ${e.message}")
