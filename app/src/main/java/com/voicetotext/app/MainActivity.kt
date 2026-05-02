@@ -14,6 +14,7 @@ import android.os.Environment
 import android.widget.*
 import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -30,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var btnRecord: Button
     private lateinit var btnMeeting: Button
+    private lateinit var btnModel: Button  // 模型选择按钮
     private lateinit var etResult: EditText
     private lateinit var tvPartial: TextView
     private lateinit var btnHistory: Button
@@ -85,7 +87,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(16, 16, 16, 16)
         }
 
-        // 标题 + 状态
+        // 标题 + 状态 + 当前模型
         val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         TextView(this).apply {
             text = "语音转文字"
@@ -158,12 +160,18 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(row1)
 
-        // 第二行：文件识别 + 历史
+        // 第二行：文件识别 + 模型 + 历史
         val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         Button(this).apply {
-            text = "📁 文件识别"
+            text = "📁 文件"
             textSize = 13f
             setOnClickListener { pickAudioFile() }
+            row2.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        btnModel = Button(this).apply {
+            text = "📦 模型"
+            textSize = 13f
+            setOnClickListener { showModelChooser() }
             row2.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         btnHistory = Button(this).apply {
@@ -257,29 +265,50 @@ class MainActivity : AppCompatActivity() {
     private fun initModel() {
         if (modelLoading || isModelReady) return
         modelLoading = true
-        tvStatus.text = "⌛ 加载语音模型中..."
-        tvPartial.text = "首次启动需要解压模型，请稍候..."
+
+        // 读取上次使用的模型
+        val modelId = ModelManager.getCurrentModelId(this)
+        val modelInfo = ModelManager.getModelInfo(modelId)
+
+        tvStatus.text = "⌛ 加载模型中..."
+        tvPartial.text = if (modelInfo != null) "模型: ${modelInfo.name}" else "准备中..."
 
         Thread {
             try {
-                ModelManager.extractModelFromAssets(this, ModelManager.availableModels[0].id)
-                val modelDir = File(ModelManager.getModelDir(this), ModelManager.availableModels[0].id)
+                // 确保模型已解压
+                if (!ModelManager.isModelExtracted(this, modelId)) {
+                    runOnUiThread { tvPartial.text = "正在解压模型..." }
+
+                    // 尝试从 assets 解压（内置模型）
+                    val extracted = ModelManager.extractModelFromAssets(this, modelId)
+                    if (!extracted) {
+                        runOnUiThread {
+                            modelLoading = false
+                            tvStatus.text = "❌ 模型未安装"
+                            tvPartial.text = "点击 📦 模型 按钮下载或导入"
+                        }
+                        return@Thread
+                    }
+                }
+
+                val modelDir = File(ModelManager.getModelDir(this), modelId)
                 val ok = voskEngine.loadModel(modelDir.absolutePath)
                 runOnUiThread {
                     modelLoading = false
                     if (ok) {
                         isModelReady = true
-                        tvStatus.text = "✅ 模型就绪"
+                        tvStatus.text = "✅ 就绪"
                         tvPartial.text = "（点击录音或会议按钮开始）"
+                        btnModel.text = "📦 ${modelInfo?.lang ?: "模型"}"
                     } else {
-                        tvStatus.text = "❌ 模型加载失败"
-                        tvPartial.text = "请检查模型文件"
+                        tvStatus.text = "❌ 加载失败"
+                        tvPartial.text = "模型文件异常: $modelId"
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     modelLoading = false
-                    tvStatus.text = "❌ 模型初始化失败"
+                    tvStatus.text = "❌ 初始化失败"
                     tvPartial.text = e.message ?: "未知错误"
                 }
             }
@@ -597,6 +626,137 @@ class MainActivity : AppCompatActivity() {
     private fun exportMeetingSegments() {
         if (segments.isEmpty()) { Toast.makeText(this, "没有会议记录", Toast.LENGTH_SHORT).show(); return }
         saveText()
+    }
+
+    // ===================== 模型选择 =====================
+
+    private fun showModelChooser() {
+        if (isRecording) {
+            Toast.makeText(this, "请先停止录音", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val installed = ModelManager.scanInstalledModels(this)
+        val currentId = ModelManager.getCurrentModelId(this)
+
+        val items = mutableListOf<String>()
+        val modelIds = mutableListOf<String>()
+
+        // 已安装模型
+        if (installed.isNotEmpty()) {
+            items.add("── 已安装模型 ──")
+            modelIds.add("")
+            for (m in installed) {
+                val mark = if (m.id == currentId) " ✓" else ""
+                items.add("${m.name} (${m.lang})${mark}")
+                modelIds.add(m.id)
+            }
+        }
+
+        // 在线可下载
+        items.add("── 在线下载 ──")
+        modelIds.add("")
+        for (m in ModelManager.onlineModels) {
+            val isInstalled = installed.any { it.id == m.id }
+            val status = if (isInstalled) " [已安装]" else ""
+            items.add("${m.name} (${m.lang}, ${m.size})${status}")
+            modelIds.add("download:${m.id}")
+        }
+
+        // 导入
+        items.add("── 其他 ──")
+        modelIds.add("")
+        items.add("📂 从文件夹导入")
+        modelIds.add("import")
+
+        AlertDialog.Builder(this)
+            .setTitle("选择模型")
+            .setItems(items.toTypedArray()) { _, which ->
+                val action = modelIds[which]
+                when {
+                    action.startsWith("download:") -> {
+                        val modelId = action.removePrefix("download:")
+                        val model = ModelManager.onlineModels.find { it.id == modelId }
+                        if (model != null) downloadAndSwitchModel(model)
+                    }
+                    action == "import" -> importAndSwitchModel()
+                    action.isNotEmpty() -> switchModel(action)
+                }
+            }
+            .show()
+    }
+
+    private fun downloadAndSwitchModel(model: OnlineModel) {
+        // 检查是否已安装
+        if (ModelManager.isModelExtracted(this, model.id)) {
+            switchModel(model.id)
+            return
+        }
+
+        tvStatus.text = "⏳ 下载中..."
+        tvPartial.text = "正在下载 ${model.name}..."
+
+        ModelManager.downloadModel(this, model, object : ModelManager.DownloadListener {
+            override fun onProgress(percent: Int) {
+                runOnUiThread { tvPartial.text = "下载中: $percent%" }
+            }
+            override fun onComplete(result: String) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, result, Toast.LENGTH_SHORT).show()
+                    if (result.startsWith("成功")) {
+                        switchModel(model.id)
+                    } else {
+                        tvStatus.text = "❌ 下载失败"
+                        tvPartial.text = result
+                    }
+                }
+            }
+            override fun onError(error: String) {
+                runOnUiThread {
+                    tvStatus.text = "❌ 下载失败"
+                    tvPartial.text = error
+                }
+            }
+        })
+    }
+
+    private fun importAndSwitchModel() {
+        tvStatus.text = "⏳ 正在扫描导入..."
+        tvPartial.text = "检查 ${ModelManager.IMPORT_DIR} 目录..."
+
+        Thread {
+            val results = ModelManager.importFromDirectory(this)
+            runOnUiThread {
+                if (results.isEmpty()) {
+                    Toast.makeText(this, "未找到模型文件，请放入 ${ModelManager.getImportDir(this).absolutePath}", Toast.LENGTH_LONG).show()
+                    tvStatus.text = "✅ 就绪"
+                    tvPartial.text = "（导入目录为空）"
+                } else {
+                    for (r in results) {
+                        Toast.makeText(this, r, Toast.LENGTH_SHORT).show()
+                        if (r.startsWith("成功")) {
+                            val modelId = r.removePrefix("成功: ").substringBefore(" ")
+                            switchModel(modelId)
+                        }
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun switchModel(modelId: String) {
+        if (modelId == ModelManager.getCurrentModelId(this) && isModelReady) {
+            Toast.makeText(this, "已是当前模型", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        ModelManager.setCurrentModelId(this, modelId)
+        isModelReady = false
+        modelLoading = false
+
+        // 重新初始化
+        voskEngine.release()
+        initModel()
     }
 
     // ===================== 权限 =====================
