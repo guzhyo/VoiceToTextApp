@@ -225,7 +225,6 @@ class MainActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = segmentAdapter
             minimumHeight = 200
-            maxHeight = 400
         }
         layoutSegments.addView(rvSegments, LinearLayout.LayoutParams(-1, 0, 1f))
 
