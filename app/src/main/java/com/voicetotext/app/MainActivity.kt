@@ -74,28 +74,36 @@ class MainActivity : AppCompatActivity() {
             setPadding(16, 16, 16, 16)
         }
 
-        // 标题 + 状态
-        tvStatus = TextView(this).apply {
-            text = "📝 语音转文字 v2.0"
-            textSize = 20f
+        // 标题 + 状态（一行）
+        val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        TextView(this).apply {
+            text = "语音转文字"
+            textSize = 18f
+            titleRow.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        root.addView(tvStatus)
+        tvStatus = TextView(this).apply {
+            text = "加载中..."
+            textSize = 13f
+            gravity = android.view.Gravity.END
+        }
+        titleRow.addView(tvStatus)
+        root.addView(titleRow)
 
-        // 录音按钮（大）
+        // 录音按钮
         btnRecord = Button(this).apply {
             text = "🎤 开始录音"
-            textSize = 24f
+            textSize = 16f
             setOnClickListener {
                 if (isRecording) stopRecording() else startRecording()
             }
         }.also {
-            root.addView(it, LinearLayout.LayoutParams(-1, 120))
+            root.addView(it, LinearLayout.LayoutParams(-1, -2))
         }
 
         // 实时中间结果
         tvPartial = TextView(this).apply {
             text = "（准备就绪）"
-            textSize = 14f
+            textSize = 13f
             setTextColor(android.graphics.Color.GRAY)
             minLines = 1
             maxLines = 2
@@ -105,22 +113,26 @@ class MainActivity : AppCompatActivity() {
         // 编辑按钮行：复制 | 保存 | 追加 | 清空
         val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         Button(this).apply {
-            text = "📋 复制"
+            text = "复制"
+            textSize = 13f
             setOnClickListener { copyText() }
             row1.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         Button(this).apply {
-            text = "💾 保存"
+            text = "保存"
+            textSize = 13f
             setOnClickListener { saveText() }
             row1.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         Button(this).apply {
-            text = "✏️ 追加"
+            text = "追加"
+            textSize = 13f
             setOnClickListener { appendText() }
             row1.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         Button(this).apply {
-            text = "🗑️ 清空"
+            text = "清空"
+            textSize = 13f
             setOnClickListener { clearText() }
             row1.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
@@ -129,12 +141,14 @@ class MainActivity : AppCompatActivity() {
         // 第二行：文件识别 + 历史
         val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         Button(this).apply {
-            text = "📁 选择文件识别"
+            text = "📁 文件识别"
+            textSize = 13f
             setOnClickListener { pickAudioFile() }
             row2.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         btnHistory = Button(this).apply {
-            text = "📄 历史记录 (0)"
+            text = "📄 历史 (0)"
+            textSize = 13f
             setOnClickListener {
                 startActivity(Intent(this@MainActivity, HistoryActivity::class.java))
             }
@@ -146,9 +160,9 @@ class MainActivity : AppCompatActivity() {
         etResult = EditText(this).apply {
             hint = "识别结果（可编辑）"
             gravity = android.view.Gravity.TOP
-            textSize = 16f
+            textSize = 15f
         }
-        root.addView(etResult, LinearLayout.LayoutParams(-1, 400))
+        root.addView(etResult, LinearLayout.LayoutParams(-1, 0, 1f))
 
         scroll.addView(root)
         setContentView(scroll)

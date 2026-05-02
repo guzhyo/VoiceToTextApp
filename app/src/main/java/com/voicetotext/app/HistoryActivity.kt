@@ -38,20 +38,22 @@ class HistoryActivity : AppCompatActivity() {
         // 顶部栏：返回 + 标题 + 操作
         val topBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         Button(this).apply {
-            text = "\u2190 返回"
+            text = "← 返回"
+            textSize = 13f
             setOnClickListener { finish() }
             topBar.addView(this, LinearLayout.LayoutParams(-2, -2))
         }
         tvCount = TextView(this).apply {
             text = "历史记录 (0)"
-            textSize = 20f
+            textSize = 18f
         }.also {
             topBar.addView(it, LinearLayout.LayoutParams(0, -2, 1f).apply {
                 gravity = android.view.Gravity.CENTER
             })
         }
         Button(this).apply {
-            text = "\uD83D\uDCE4 导出"
+            text = "导出"
+            textSize = 13f
             setOnClickListener { exportAll() }
             topBar.addView(this, LinearLayout.LayoutParams(-2, -2))
         }
@@ -59,7 +61,8 @@ class HistoryActivity : AppCompatActivity() {
 
         // 搜索框
         etSearch = EditText(this).apply {
-            hint = "\uD83D\uDD0D 搜索历史记录..."
+            hint = "搜索历史记录..."
+            textSize = 13f
             setSingleLine()
         }
         etSearch.addTextChangedListener(object : android.text.TextWatcher {
@@ -74,12 +77,14 @@ class HistoryActivity : AppCompatActivity() {
         // 操作按钮行
         val opRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         Button(this).apply {
-            text = "\uD83D\uDDD1\uFE0F 清空全部"
+            text = "清空全部"
+            textSize = 13f
             setOnClickListener { confirmClearAll() }
             opRow.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         Button(this).apply {
-            text = "\uD83D\uDCCB 全选复制"
+            text = "全选复制"
+            textSize = 13f
             setOnClickListener { copyAll() }
             opRow.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
