@@ -71,7 +71,7 @@ class HistoryActivity : AppCompatActivity() {
         root.addView(tvEmpty, LinearLayout.LayoutParams(-1, -1, 1f))
 
         // 历史列表
-        historyAdapter = HistoryAdapter(MainActivity.history) { item ->
+        historyAdapter = HistoryAdapter(MainActivity.history) { item: RecognitionItem ->
             // 点击复制文字到剪贴板
             (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
                 .setPrimaryClip(ClipData.newPlainText("text", item.text))
