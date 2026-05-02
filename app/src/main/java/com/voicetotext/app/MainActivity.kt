@@ -58,22 +58,22 @@ class MainActivity : AppCompatActivity() {
         Button(this).apply {
             text = "📋 复制"
             setOnClickListener { copyText() }
-            row1.addView(this, LinearLayout.LayoutParams(0, 100, 1f))
+            row1.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         Button(this).apply {
             text = "💾 保存"
             setOnClickListener { saveText() }
-            row1.addView(this, LinearLayout.LayoutParams(0, 100, 1f))
+            row1.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         Button(this).apply {
             text = "✏️ 追加"
             setOnClickListener { appendText() }
-            row1.addView(this, LinearLayout.LayoutParams(0, 100, 1f))
+            row1.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         Button(this).apply {
             text = "🗑️ 清空"
             setOnClickListener { clearText() }
-            row1.addView(this, LinearLayout.LayoutParams(0, 100, 1f))
+            row1.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
         root.addView(row1)
 
