@@ -11,6 +11,7 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.util.Log
 import android.widget.*
 import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
@@ -294,6 +295,7 @@ class MainActivity : AppCompatActivity() {
 
                 val modelDir = File(ModelManager.getModelDir(this), modelId)
                 val ok = voskEngine.loadModel(modelDir.absolutePath)
+                Log.i("VoskDebug", "initModel: loadModel(${modelDir.absolutePath}) = $ok")
                 runOnUiThread {
                     modelLoading = false
                     if (ok) {
@@ -363,6 +365,8 @@ class MainActivity : AppCompatActivity() {
             voskEngine.closeRecognizer()
             currentRecognizer = voskEngine.createRecognizer(true)
 
+            Log.i("VoskDebug", "startAudioCapture: rec=$currentRecognizer isMeeting=$isMeetingMode")
+
             if (isMeetingMode) {
                 // 会议模式：启用端指针，自动切分段落
                 currentRecognizer?.setEndpointerMode(Recognizer.EndpointerMode.LONG)
@@ -399,6 +403,7 @@ class MainActivity : AppCompatActivity() {
                         if (hasResult && isMeetingMode) {
                             val resultJson = rec.getResult()
                             val text = voskEngine.extractText(resultJson)
+                            Log.i("VoskDebug", "会议分段: '$text' (from $resultJson)")
                             if (text.isNotEmpty()) {
                                 val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                                 val seg = MeetingSegment(ts, text)
@@ -460,6 +465,12 @@ class MainActivity : AppCompatActivity() {
             // 获取最终结果
             val finalJson = currentRecognizer?.getFinalResult() ?: "{}"
             val finalText = voskEngine.extractText(finalJson)
+            Log.i("VoskDebug", "stopRecording: getFinalResult()=$finalJson finalText='$finalText'")
+
+            // 也尝试 getResult() 看看有没有不同
+            val altResult = currentRecognizer?.getResult() ?: "{}"
+            val altText = voskEngine.extractText(altResult)
+            Log.i("VoskDebug", "stopRecording: getResult()=$altResult altText='$altText'")
 
             if (isMeetingMode) {
                 // 会议模式：检查是否有残留分段
