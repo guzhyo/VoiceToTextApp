@@ -189,8 +189,9 @@ class MainActivity : AppCompatActivity() {
             hint = "识别结果（可编辑）"
             gravity = android.view.Gravity.TOP
             textSize = 15f
+            minHeight = 150
         }
-        root.addView(etResult, LinearLayout.LayoutParams(-1, 300))
+        root.addView(etResult, LinearLayout.LayoutParams(-1, 0, 1f))
 
         // ===== 会议分段区域 =====
         layoutSegments = LinearLayout(this).apply {
@@ -392,9 +393,27 @@ class MainActivity : AppCompatActivity() {
                 while (isRecording && rec != null) {
                     val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                     if (bytesRead > 0) {
-                        rec.acceptWaveForm(buffer, bytesRead)
+                        val hasResult = rec.acceptWaveForm(buffer, bytesRead)
 
-                        // 实时获取中间结果（两种模式都显示）
+                        // 会议模式：每段完整结果生成一条分段
+                        if (hasResult && isMeetingMode) {
+                            val resultJson = rec.getResult()
+                            val text = voskEngine.extractText(resultJson)
+                            if (text.isNotEmpty()) {
+                                val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                                val seg = MeetingSegment(ts, text)
+                                runOnUiThread {
+                                    segments.add(seg)
+                                    segmentAdapter.notifyItemInserted(segments.size - 1)
+                                    rvSegments.smoothScrollToPosition(segments.size - 1)
+                                    tvPartial.text = "💬 ${text.take(40)}..."
+                                    updateSegmentsVisibility()
+                                }
+                                lastPartialText = ""
+                            }
+                        }
+
+                        // 实时显示中间结果
                         val partial = rec.getPartialResult()
                         val partialText = voskEngine.extractText(partial)
                         if (partialText.isNotEmpty() && partialText != lastPartialText) {
@@ -403,10 +422,6 @@ class MainActivity : AppCompatActivity() {
                                 tvPartial.text = "💬 $partialText"
                             }
                         }
-
-                        // acceptWaveForm 返回 true 时，有一段完整的话语识别完成
-                        // 但注意：不开启 endpointer 时，它只会在缓冲区满时返回 true
-                        // 所以停止时获取 getFinalResult 才是完整结果
                     }
                 }
             }
@@ -421,25 +436,25 @@ class MainActivity : AppCompatActivity() {
         if (!isRecording) return
         isRecording = false
 
-        try { audioRecord?.stop() } catch (_: Exception) {}
-        try { audioRecord?.release() } catch (_: Exception) {}
-        audioRecord = null
-
         btnRecord.isEnabled = true
         btnMeeting.isEnabled = true
 
         if (isMeetingMode) {
             btnMeeting.text = "👥 会议"
-            tvStatus.text = "✅ 会议结束"
-            tvPartial.text = "共 ${segments.size} 段记录"
+            tvStatus.text = "⏳ 处理会议结果..."
         } else {
             btnRecord.text = "🎤 录音"
-            tvStatus.text = "✅ 就绪"
-            tvPartial.text = "（点击录音或会议按钮开始）"
+            tvStatus.text = "⏳ 处理识别结果..."
         }
+        tvPartial.text = "（正在完成识别...）"
 
-        // 等待识别线程结束
+        // 先等识别线程退出（线程检测 isRecording=false 后会结束循环）
         recognizeThread?.join(2000)
+
+        // 再停止录音硬件
+        try { audioRecord?.stop() } catch (_: Exception) {}
+        try { audioRecord?.release() } catch (_: Exception) {}
+        audioRecord = null
 
         try {
             // 获取最终结果
@@ -454,6 +469,7 @@ class MainActivity : AppCompatActivity() {
                     segmentAdapter.notifyItemInserted(segments.size - 1)
                     updateSegmentsVisibility()
                 }
+                tvStatus.text = "✅ 会议结束"
                 tvPartial.text = "共 ${segments.size} 段记录"
 
                 // 会议模式也加入历史（所有分段合并）

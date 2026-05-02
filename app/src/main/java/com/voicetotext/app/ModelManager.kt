@@ -90,9 +90,9 @@ object ModelManager {
         return File(context.filesDir, MODELS_DIR)
     }
 
-    /** 获取手机共享目录（用于导入） */
+    /** 获取手机共享目录（用于导入）——用户在此目录放 zip 模型文件 */
     fun getImportDir(context: Context): File {
-        return File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), IMPORT_DIR).also {
+        return File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), IMPORT_DIR).also {
             it.mkdirs()
         }
     }
