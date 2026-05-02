@@ -58,4 +58,7 @@ dependencies {
     // Vosk 离线语音识别
     implementation 'com.alphacephei:vosk-android:0.3.75@aar'
     implementation 'net.java.dev.jna:jna:5.18.1@aar'
+
+    // Apache Commons Compress — 支持 tar.gz 模型解压
+    implementation 'org.apache.commons:commons-compress:1.26.0'
 }

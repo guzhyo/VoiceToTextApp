@@ -11,6 +11,8 @@ import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import java.io.File
+import java.io.FileInputStream
+import java.util.zip.GZIPInputStream
 
 /**
  * 模型管理 — 解压、下载、扫描、切换
@@ -166,15 +168,18 @@ object ModelManager {
         }
     }
 
-    /** 从导入目录扫描并导入模型 */
+    /** 从导入目录扫描并导入模型（支持 .zip 和 .tar.gz） */
     fun importFromDirectory(context: Context): List<String> {
         val imported = mutableListOf<String>()
         val importDir = getImportDir(context)
         if (!importDir.exists()) return imported
 
         importDir.listFiles()?.forEach { file ->
-            if (file.name.endsWith(".zip")) {
-                val modelId = file.name.removeSuffix(".zip")
+            val isZip = file.name.endsWith(".zip") && !file.name.endsWith(".tar.gz")
+            val isTarGz = file.name.endsWith(".tar.gz")
+            if (isZip || isTarGz) {
+                val modelId = if (isZip) file.name.removeSuffix(".zip")
+                              else file.name.removeSuffix(".tar.gz")
                 val destDir = File(getModelDir(context), modelId)
                 if (destDir.exists()) {
                     Log.i(TAG, "模型已存在，跳过导入: $modelId")
@@ -183,21 +188,14 @@ object ModelManager {
                 }
                 try {
                     destDir.mkdirs()
-                    java.util.zip.ZipInputStream(file.inputStream()).use { zis ->
-                        var entry = zis.nextEntry
-                        while (entry != null) {
-                            if (!entry.isDirectory) {
-                                val outFile = File(destDir, entry.name)
-                                outFile.parentFile?.mkdirs()
-                                outFile.outputStream().use { out -> zis.copyTo(out) }
-                            }
-                            zis.closeEntry()
-                            entry = zis.nextEntry
-                        }
+                    if (isZip) {
+                        extractZip(file, destDir)
+                    } else {
+                        extractTarGz(file, destDir)
                     }
                     if (File(destDir, "am").exists()) {
                         imported.add("成功: $modelId")
-                        file.delete()  // 导入后删除 zip
+                        file.delete()
                     } else {
                         destDir.deleteRecursively()
                         imported.add("失败: $modelId (无效模型)")
@@ -209,6 +207,49 @@ object ModelManager {
             }
         }
         return imported
+    }
+
+    private fun extractZip(file: File, destDir: File) {
+        java.util.zip.ZipInputStream(file.inputStream()).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory) {
+                    val name = entry.name.substringAfter("/")
+                    if (name.isNotEmpty()) {
+                        val outFile = File(destDir, name)
+                        outFile.parentFile?.mkdirs()
+                        outFile.outputStream().use { out -> zis.copyTo(out) }
+                    }
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+    }
+
+    private fun extractTarGz(file: File, destDir: File) {
+        val buffer = ByteArray(8192)
+        GZIPInputStream(FileInputStream(file)).use { gzis ->
+            org.apache.commons.compress.archivers.tar.TarArchiveInputStream(gzis).use { tis ->
+                var entry = tis.nextTarEntry
+                while (entry != null) {
+                    if (!entry.isDirectory) {
+                        val name = entry.name.substringAfter("/")
+                        if (name.isNotEmpty()) {
+                            val outFile = File(destDir, name)
+                            outFile.parentFile?.mkdirs()
+                            outFile.outputStream().use { out ->
+                                var bytesRead: Int
+                                while (tis.read(buffer).also { bytesRead = it } != -1) {
+                                    out.write(buffer, 0, bytesRead)
+                                }
+                            }
+                        }
+                    }
+                    entry = tis.nextTarEntry
+                }
+            }
+        }
     }
 
     /** 启动在线下载 */
