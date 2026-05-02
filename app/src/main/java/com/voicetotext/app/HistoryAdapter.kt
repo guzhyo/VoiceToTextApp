@@ -1,5 +1,6 @@
 package com.voicetotext.app
 
+import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -10,7 +11,10 @@ class HistoryAdapter(
     private val onClick: (RecognitionItem) -> Unit
 ) : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
 
-    class ViewHolder(val titleView: TextView, val textView: TextView) : RecyclerView.ViewHolder(titleView.parent as android.view.View)
+    class ViewHolder(root: View) : RecyclerView.ViewHolder(root) {
+        val titleView: TextView = (root as LinearLayout).getChildAt(0) as TextView
+        val textView: TextView = root.getChildAt(1) as TextView
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val ctx = parent.context
@@ -18,14 +22,14 @@ class HistoryAdapter(
             orientation = LinearLayout.VERTICAL
             setPadding(8, 8, 8, 8)
         }
-        val title = TextView(ctx).apply {
-            textSize = 12f
-            setTextColor(android.graphics.Color.GRAY)
+        root.addView(TextView(ctx).apply { textSize = 12f; setTextColor(android.graphics.Color.GRAY) })
+        root.addView(TextView(ctx).apply { maxLines = 2 })
+        return ViewHolder(root).also { vh ->
+            root.setOnClickListener {
+                val pos = vh.layoutPosition
+                if (pos >= 0 && pos < items.size) onClick(items[pos])
+            }
         }
-        val text = TextView(ctx).apply { maxLines = 2 }
-        root.addView(title)
-        root.addView(text)
-        return ViewHolder(title, text).also { root.setOnClickListener { onClick(items[it.bindingAdapterPosition]) } }
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
