@@ -358,48 +358,26 @@ class MainActivity : AppCompatActivity() {
             recognizeThread = Thread {
                 val buffer = ByteArray(bufferSize)
                 val rec = currentRecognizer
-                var currentSegmentText = StringBuilder()
+                var lastPartialText = ""
 
                 while (isRecording && rec != null) {
                     val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                     if (bytesRead > 0) {
-                        if (rec.acceptWaveForm(buffer, bytesRead)) {
-                            val resultJson = rec.getResult()
-                            val text = voskEngine.extractText(resultJson)
-                            if (text.isNotEmpty()) {
-                                if (isMeetingMode) {
-                                    // 会议模式：每段完整结果作为一条新分段
-                                    val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-                                    val seg = MeetingSegment(ts, text)
-                                    runOnUiThread {
-                                        segments.add(seg)
-                                        segmentAdapter.notifyItemInserted(segments.size - 1)
-                                        rvSegments.smoothScrollToPosition(segments.size - 1)
-                                        tvPartial.text = "💬 ${text.take(40)}..."
-                                        updateSegmentsVisibility()
-                                    }
-                                } else {
-                                    // 普通模式：累加到编辑框
-                                    currentSegmentText.append(text).append("。")
-                                    runOnUiThread {
-                                        currentText = currentSegmentText.toString()
-                                        etResult.setText(currentText)
-                                        tvPartial.text = "💬 ${text.take(40)}..."
-                                    }
-                                }
-                            }
-                        } else {
-                            // 获取中间结果（仅会议模式显示）
-                            if (isMeetingMode) {
-                                val partial = rec.getPartialResult()
-                                val partialText = voskEngine.extractText(partial)
-                                if (partialText.isNotEmpty()) {
-                                    runOnUiThread {
-                                        tvPartial.text = "💬 $partialText"
-                                    }
-                                }
+                        rec.acceptWaveForm(buffer, bytesRead)
+
+                        // 实时获取中间结果（两种模式都显示）
+                        val partial = rec.getPartialResult()
+                        val partialText = voskEngine.extractText(partial)
+                        if (partialText.isNotEmpty() && partialText != lastPartialText) {
+                            lastPartialText = partialText
+                            runOnUiThread {
+                                tvPartial.text = "💬 $partialText"
                             }
                         }
+
+                        // acceptWaveForm 返回 true 时，有一段完整的话语识别完成
+                        // 但注意：不开启 endpointer 时，它只会在缓冲区满时返回 true
+                        // 所以停止时获取 getFinalResult 才是完整结果
                     }
                 }
             }
@@ -435,31 +413,42 @@ class MainActivity : AppCompatActivity() {
         recognizeThread?.join(2000)
 
         try {
-            // 获取最终残留结果
+            // 获取最终结果
             val finalJson = currentRecognizer?.getFinalResult() ?: "{}"
             val finalText = voskEngine.extractText(finalJson)
-            if (finalText.isNotEmpty()) {
-                if (isMeetingMode) {
+
+            if (isMeetingMode) {
+                // 会议模式：检查是否有残留分段
+                if (finalText.isNotEmpty()) {
                     val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-                    val seg = MeetingSegment(ts, finalText)
-                    segments.add(seg)
+                    segments.add(MeetingSegment(ts, finalText))
                     segmentAdapter.notifyItemInserted(segments.size - 1)
                     updateSegmentsVisibility()
-                    tvPartial.text = "共 ${segments.size} 段记录"
-                } else {
-                    currentText = if (currentText.isNotEmpty()) "$currentText。$finalText" else finalText
-                    etResult.setText(currentText)
                 }
-                // 普通模式也加入历史
-                if (!isMeetingMode) {
+                tvPartial.text = "共 ${segments.size} 段记录"
+
+                // 会议模式也加入历史（所有分段合并）
+                if (segments.isNotEmpty()) {
+                    val fullText = segments.joinToString("\n") { "【${it.time}】${it.text}" }
+                    val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+                    history.add(0, RecognitionItem(ts, fullText, "会议记录"))
+                    btnHistory.text = "📄 历史 (${history.size})"
+                }
+            } else {
+                // 普通模式：最终结果是完整识别文字
+                if (finalText.isNotEmpty()) {
+                    currentText = finalText
+                    etResult.setText(currentText)
+                    tvPartial.text = "✅ 识别完成 (${finalText.length}字)"
+                } else {
+                    tvPartial.text = "（未检测到语音）"
+                }
+
+                if (currentText.isNotEmpty()) {
                     val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                     history.add(0, RecognitionItem(ts, currentText, "录音识别"))
                     btnHistory.text = "📄 历史 (${history.size})"
                 }
-            } else if (!isMeetingMode && currentText.isNotEmpty()) {
-                val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-                history.add(0, RecognitionItem(ts, currentText, "录音识别"))
-                btnHistory.text = "📄 历史 (${history.size})"
             }
         } catch (_: Exception) {}
 
