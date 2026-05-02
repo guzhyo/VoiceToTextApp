@@ -9,7 +9,14 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: android-actions/setup-android@v3
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK 34
+        run: |
+          yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" || true
+
       - name: Create Gradle Wrapper
         run: |
           mkdir -p gradle/wrapper
@@ -20,16 +27,24 @@ jobs:
           zipStoreBase=GRADLE_USER_HOME
           zipStorePath=wrapper/dists
           EOF
-          # Download wrapper jar
           curl -sL -o gradle/wrapper/gradle-wrapper.jar \
             "https://github.com/gradle/gradle/raw/v8.1.1/gradle/wrapper/gradle-wrapper.jar"
+
+      - name: Generate debug keystore
+        run: |
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Build
         run: |
           sudo apt-get install -y dos2unix
           chmod +x gradlew
           dos2unix gradlew
           ./gradlew assembleDebug --no-daemon
-      - name: Upload
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
