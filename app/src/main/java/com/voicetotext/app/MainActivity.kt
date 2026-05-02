@@ -16,6 +16,8 @@ import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import org.vosk.Recognizer
 import java.io.*
 import java.nio.ByteBuffer
@@ -27,13 +29,22 @@ class MainActivity : AppCompatActivity() {
     // UI 组件
     private lateinit var tvStatus: TextView
     private lateinit var btnRecord: Button
+    private lateinit var btnMeeting: Button
     private lateinit var etResult: EditText
-    private lateinit var tvPartial: TextView  // 实时中间结果
+    private lateinit var tvPartial: TextView
     private lateinit var btnHistory: Button
+
+    // 会议记录分段列表
+    private lateinit var rvSegments: RecyclerView
+    private var segments = mutableListOf<MeetingSegment>()
+    private lateinit var segmentAdapter: MeetingSegmentAdapter
+    private lateinit var tvEmptySegments: TextView
+    private lateinit var layoutSegments: LinearLayout
 
     // 录音
     private var audioRecord: AudioRecord? = null
     private var isRecording = false
+    private var isMeetingMode = false
     private var recognizeThread: Thread? = null
     private var currentRecognizer: Recognizer? = null
 
@@ -74,7 +85,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(16, 16, 16, 16)
         }
 
-        // 标题 + 状态（一行）
+        // 标题 + 状态
         val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         TextView(this).apply {
             text = "语音转文字"
@@ -89,16 +100,25 @@ class MainActivity : AppCompatActivity() {
         titleRow.addView(tvStatus)
         root.addView(titleRow)
 
-        // 录音按钮
+        // 录音模式切换 + 录音按钮
+        val modeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         btnRecord = Button(this).apply {
-            text = "🎤 开始录音"
+            text = "🎤 录音"
             textSize = 16f
             setOnClickListener {
-                if (isRecording) stopRecording() else startRecording()
+                if (isRecording) stopRecording() else startNormalRecording()
             }
-        }.also {
-            root.addView(it, LinearLayout.LayoutParams(-1, -2))
+            modeRow.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
         }
+        btnMeeting = Button(this).apply {
+            text = "👥 会议"
+            textSize = 16f
+            setOnClickListener {
+                if (isRecording) stopRecording() else startMeetingRecording()
+            }
+            modeRow.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        root.addView(modeRow)
 
         // 实时中间结果
         tvPartial = TextView(this).apply {
@@ -110,7 +130,7 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(tvPartial)
 
-        // 编辑按钮行：复制 | 保存 | 追加 | 清空
+        // 编辑按钮行
         val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         Button(this).apply {
             text = "复制"
@@ -156,21 +176,81 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(row2)
 
-        // 识别结果编辑框
+        // 识别结果编辑框（普通模式用）
         etResult = EditText(this).apply {
             hint = "识别结果（可编辑）"
             gravity = android.view.Gravity.TOP
             textSize = 15f
         }
-        root.addView(etResult, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(etResult, LinearLayout.LayoutParams(-1, 300))
+
+        // ===== 会议分段区域 =====
+        layoutSegments = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // 分段标题 + 操作
+        val segHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        TextView(this).apply {
+            text = "会议分段"
+            textSize = 15f
+            segHeader.addView(this, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        Button(this).apply {
+            text = "导出全部"
+            textSize = 12f
+            setOnClickListener { exportMeetingSegments() }
+            segHeader.addView(this, LinearLayout.LayoutParams(-2, -2))
+        }
+        layoutSegments.addView(segHeader)
+
+        // 空状态
+        tvEmptySegments = TextView(this).apply {
+            text = "（会议模式下自动分段显示）"
+            textSize = 13f
+            setTextColor(android.graphics.Color.GRAY)
+            gravity = android.view.Gravity.CENTER
+            minHeight = 80
+        }
+        layoutSegments.addView(tvEmptySegments)
+
+        // 分段列表
+        segmentAdapter = MeetingSegmentAdapter(segments) { seg ->
+            // 点击分段，把文字填入编辑框
+            etResult.setText(seg.text)
+            currentText = seg.text
+            tvPartial.text = "📍 已选择第${segments.indexOf(seg) + 1}段"
+        }
+        rvSegments = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = segmentAdapter
+            minimumHeight = 200
+            maxHeight = 400
+        }
+        layoutSegments.addView(rvSegments, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        // 默认隐藏会议分段区域
+        layoutSegments.visibility = android.view.View.GONE
+        root.addView(layoutSegments)
 
         scroll.addView(root)
         setContentView(scroll)
     }
 
+    private fun updateSegmentsVisibility() {
+        layoutSegments.visibility = if (isMeetingMode || segments.isNotEmpty())
+            android.view.View.VISIBLE else android.view.View.GONE
+        tvEmptySegments.visibility = if (segments.isEmpty())
+            android.view.View.VISIBLE else android.view.View.GONE
+        rvSegments.visibility = if (segments.isEmpty())
+            android.view.View.GONE else android.view.View.VISIBLE
+        etResult.visibility = if (isMeetingMode)
+            android.view.View.GONE else android.view.View.VISIBLE
+    }
+
     override fun onResume() {
         super.onResume()
-        btnHistory.text = "📄 历史记录 (${history.size})"
+        btnHistory.text = "📄 历史 (${history.size})"
     }
 
     // ===================== 模型初始化 =====================
@@ -191,7 +271,7 @@ class MainActivity : AppCompatActivity() {
                     if (ok) {
                         isModelReady = true
                         tvStatus.text = "✅ 模型就绪"
-                        tvPartial.text = "（点击录音按钮开始）"
+                        tvPartial.text = "（点击录音或会议按钮开始）"
                     } else {
                         tvStatus.text = "❌ 模型加载失败"
                         tvPartial.text = "请检查模型文件"
@@ -207,13 +287,38 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    // ===================== 录音 =====================
+    // ===================== 普通录音 =====================
 
-    private fun startRecording() {
+    private fun startNormalRecording() {
         if (!isModelReady) {
-            Toast.makeText(this, "模型尚未就绪，请稍候", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "模型尚未就绪", Toast.LENGTH_SHORT).show()
             return
         }
+        isMeetingMode = false
+        updateSegmentsVisibility()
+        startAudioCapture()
+    }
+
+    // ===================== 会议模式 =====================
+
+    private fun startMeetingRecording() {
+        if (!isModelReady) {
+            Toast.makeText(this, "模型尚未就绪", Toast.LENGTH_SHORT).show()
+            return
+        }
+        isMeetingMode = true
+        segments.clear()
+        segmentAdapter.notifyDataSetChanged()
+        updateSegmentsVisibility()
+
+        tvStatus.text = "👥 会议模式"
+        tvPartial.text = "（等待发言...）"
+        startAudioCapture()
+    }
+
+    // ===================== 录音核心 =====================
+
+    private fun startAudioCapture() {
         if (isRecording) return
 
         try {
@@ -226,30 +331,73 @@ class MainActivity : AppCompatActivity() {
                 bufferSize * 4
             )
 
-            // 创建新 Recognizer
             voskEngine.closeRecognizer()
             currentRecognizer = voskEngine.createRecognizer(true)
 
+            if (isMeetingMode) {
+                // 会议模式：启用端指针，自动切分段落
+                currentRecognizer?.setEndpointerMode(Recognizer.EndpointerMode.LONG)
+                // 设置较短的静音判定时间（ms）
+                currentRecognizer?.setEndpointerDelays(1000f, 500f, 5000f)
+            }
+
             audioRecord?.startRecording()
             isRecording = true
-            btnRecord.text = "⏹ 停止录音"
-            tvStatus.text = "🎤 录音中..."
-            tvPartial.text = "（等待语音输入...）"
-            etResult.hint = "识别中..."
 
-            // 实时识别线程
+            if (isMeetingMode) {
+                btnMeeting.text = "⏹ 停止会议"
+                btnRecord.isEnabled = false
+                tvStatus.text = "👥 会议录音中..."
+            } else {
+                btnRecord.text = "⏹ 停止录音"
+                btnMeeting.isEnabled = false
+                tvStatus.text = "🎤 录音中..."
+            }
+            tvPartial.text = "（等待语音输入...）"
+
+            // 识别线程
             recognizeThread = Thread {
                 val buffer = ByteArray(bufferSize)
                 val rec = currentRecognizer
+                var currentSegmentText = StringBuilder()
+
                 while (isRecording && rec != null) {
                     val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                     if (bytesRead > 0) {
                         if (rec.acceptWaveForm(buffer, bytesRead)) {
-                            val partial = rec.getPartialResult()
-                            val text = voskEngine.extractText(partial)
+                            val resultJson = rec.getResult()
+                            val text = voskEngine.extractText(resultJson)
                             if (text.isNotEmpty()) {
-                                runOnUiThread {
-                                    tvPartial.text = "💬 $text"
+                                if (isMeetingMode) {
+                                    // 会议模式：每段完整结果作为一条新分段
+                                    val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                                    val seg = MeetingSegment(ts, text)
+                                    runOnUiThread {
+                                        segments.add(seg)
+                                        segmentAdapter.notifyItemInserted(segments.size - 1)
+                                        rvSegments.smoothScrollToPosition(segments.size - 1)
+                                        tvPartial.text = "💬 ${text.take(40)}..."
+                                        updateSegmentsVisibility()
+                                    }
+                                } else {
+                                    // 普通模式：累加到编辑框
+                                    currentSegmentText.append(text).append("。")
+                                    runOnUiThread {
+                                        currentText = currentSegmentText.toString()
+                                        etResult.setText(currentText)
+                                        tvPartial.text = "💬 ${text.take(40)}..."
+                                    }
+                                }
+                            }
+                        } else {
+                            // 获取中间结果（仅会议模式显示）
+                            if (isMeetingMode) {
+                                val partial = rec.getPartialResult()
+                                val partialText = voskEngine.extractText(partial)
+                                if (partialText.isNotEmpty()) {
+                                    runOnUiThread {
+                                        tvPartial.text = "💬 $partialText"
+                                    }
                                 }
                             }
                         }
@@ -267,47 +415,57 @@ class MainActivity : AppCompatActivity() {
         if (!isRecording) return
         isRecording = false
 
-        // 停止录音硬件
         try { audioRecord?.stop() } catch (_: Exception) {}
         try { audioRecord?.release() } catch (_: Exception) {}
         audioRecord = null
 
-        btnRecord.text = "🎤 开始录音"
-        tvStatus.text = "⏳ 处理识别结果..."
-        tvPartial.text = "（正在完成识别...）"
+        btnRecord.isEnabled = true
+        btnMeeting.isEnabled = true
+
+        if (isMeetingMode) {
+            btnMeeting.text = "👥 会议"
+            tvStatus.text = "✅ 会议结束"
+            tvPartial.text = "共 ${segments.size} 段记录"
+        } else {
+            btnRecord.text = "🎤 录音"
+            tvStatus.text = "✅ 就绪"
+            tvPartial.text = "（点击录音或会议按钮开始）"
+        }
 
         // 等待识别线程结束
         recognizeThread?.join(2000)
 
         try {
+            // 获取最终残留结果
             val finalJson = currentRecognizer?.getFinalResult() ?: "{}"
             val finalText = voskEngine.extractText(finalJson)
-
-            val partialJson = currentRecognizer?.getPartialResult() ?: "{}"
-            val partialText = voskEngine.extractText(partialJson)
-
-            val resultText = if (finalText.isNotEmpty()) finalText else partialText
-
-            if (resultText.isNotEmpty()) {
-                currentText = resultText
-                etResult.setText(currentText)
-                tvPartial.text = "✅ 识别完成 (${resultText.length}字)"
-                tvStatus.text = "✅ 就绪"
-
+            if (finalText.isNotEmpty()) {
+                if (isMeetingMode) {
+                    val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                    val seg = MeetingSegment(ts, finalText)
+                    segments.add(seg)
+                    segmentAdapter.notifyItemInserted(segments.size - 1)
+                    updateSegmentsVisibility()
+                    tvPartial.text = "共 ${segments.size} 段记录"
+                } else {
+                    currentText = if (currentText.isNotEmpty()) "$currentText。$finalText" else finalText
+                    etResult.setText(currentText)
+                }
+                // 普通模式也加入历史
+                if (!isMeetingMode) {
+                    val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+                    history.add(0, RecognitionItem(ts, currentText, "录音识别"))
+                    btnHistory.text = "📄 历史 (${history.size})"
+                }
+            } else if (!isMeetingMode && currentText.isNotEmpty()) {
                 val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-                history.add(0, RecognitionItem(ts, resultText, "录音识别"))
-                btnHistory.text = "📄 历史记录 (${history.size})"
-            } else {
-                tvPartial.text = "（未检测到语音）"
-                tvStatus.text = "就绪"
+                history.add(0, RecognitionItem(ts, currentText, "录音识别"))
+                btnHistory.text = "📄 历史 (${history.size})"
             }
-        } catch (e: Exception) {
-            tvPartial.text = "（识别出错）"
-            tvStatus.text = "就绪"
-        } finally {
-            voskEngine.closeRecognizer()
-            currentRecognizer = null
-        }
+        } catch (_: Exception) {}
+
+        voskEngine.closeRecognizer()
+        currentRecognizer = null
     }
 
     // ===================== 文件识别 =====================
@@ -330,20 +488,13 @@ class MainActivity : AppCompatActivity() {
 
         Thread {
             try {
-                // 复制到缓存
                 val cacheFile = File(cacheDir, "input_${System.currentTimeMillis()}")
                 contentResolver.openInputStream(uri)?.use { input ->
                     cacheFile.outputStream().use { output -> input.copyTo(output) }
                 }
-
-                // 转 WAV
                 val wavFile = File(cacheDir, "converted_${System.currentTimeMillis()}.wav")
                 convertToWav(cacheFile.absolutePath, wavFile.absolutePath)
-
-                // 识别
                 val result = voskEngine.recognizeFile(wavFile)
-
-                // 清理
                 cacheFile.delete()
                 wavFile.delete()
 
@@ -353,10 +504,9 @@ class MainActivity : AppCompatActivity() {
                         etResult.setText(currentText)
                         tvStatus.text = "✅ 文件识别完成"
                         tvPartial.text = "（${result.length}字）"
-
                         val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                         history.add(0, RecognitionItem(ts, result, "文件识别"))
-                        btnHistory.text = "📄 历史记录 (${history.size})"
+                        btnHistory.text = "📄 历史 (${history.size})"
                     } else {
                         tvStatus.text = "⚠️ 文件识别未出结果"
                         tvPartial.text = "（可能是格式不支持或语音内容为空）"
@@ -371,7 +521,6 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** MediaExtractor 转 WAV */
     private fun convertToWav(inputPath: String, outputPath: String) {
         val extractor = android.media.MediaExtractor()
         try {
@@ -404,14 +553,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 写入 WAV 头 */
     private fun writeWavFile(path: String, pcmData: ByteArray, sampleRate: Int) {
         FileOutputStream(path).use { fos ->
             val dataSize = pcmData.size
             val fileSize = 36 + dataSize
             fun wLEI(v: Int) { fos.write(byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte(), ((v shr 16) and 0xFF).toByte(), ((v shr 24) and 0xFF).toByte())) }
             fun wLES(v: Int) { fos.write(byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())) }
-
             fos.write("RIFF".toByteArray()); wLEI(fileSize); fos.write("WAVE".toByteArray())
             fos.write("fmt ".toByteArray()); wLEI(16); wLES(1); wLES(1); wLEI(sampleRate)
             wLEI(sampleRate * 2); wLES(2); wLES(16)
@@ -431,12 +578,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveText() {
-        val t = etResult.text.toString()
-        if (t.isEmpty()) { Toast.makeText(this, "没有文字", Toast.LENGTH_SHORT).show(); return }
+        val textToSave = if (segments.isNotEmpty()) {
+            segments.joinToString("\n\n") { "【${it.time}】${it.text}" }
+        } else {
+            etResult.text.toString()
+        }
+        if (textToSave.isEmpty()) { Toast.makeText(this, "没有文字", Toast.LENGTH_SHORT).show(); return }
         try {
             val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
-            val f = File(dir, "voice_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.txt")
-            f.writeText(t)
+            val name = if (segments.isNotEmpty()) "meeting_" else "voice_"
+            val f = File(dir, "${name}${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.txt")
+            f.writeText(textToSave)
             Toast.makeText(this, "已保存: ${f.name}", Toast.LENGTH_SHORT).show()
         } catch (_: Exception) { Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show() }
     }
@@ -448,7 +600,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun clearText() {
         etResult.text.clear(); currentText = ""
+        segments.clear()
+        segmentAdapter.notifyDataSetChanged()
+        updateSegmentsVisibility()
         tvPartial.text = "（已清空）"
+    }
+
+    private fun exportMeetingSegments() {
+        if (segments.isEmpty()) { Toast.makeText(this, "没有会议记录", Toast.LENGTH_SHORT).show(); return }
+        saveText()
     }
 
     // ===================== 权限 =====================
@@ -471,3 +631,4 @@ class MainActivity : AppCompatActivity() {
 }
 
 data class RecognitionItem(val timestamp: String, val text: String, val source: String)
+data class MeetingSegment(val time: String, val text: String)
