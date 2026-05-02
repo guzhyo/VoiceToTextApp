@@ -25,7 +25,7 @@ class HistoryAdapter(
         val text = TextView(ctx).apply { maxLines = 2 }
         root.addView(title)
         root.addView(text)
-        return ViewHolder(title, text).also { root.setOnClickListener { onClick(items[it.adapterPosition]) } }
+        return ViewHolder(title, text).also { root.setOnClickListener { onClick(items[it.bindingAdapterPosition]) } }
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
