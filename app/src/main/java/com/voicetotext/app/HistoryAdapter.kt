@@ -11,31 +11,29 @@ class HistoryAdapter(
     private val onClick: (RecognitionItem) -> Unit
 ) : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
 
-    class ViewHolder(root: View) : RecyclerView.ViewHolder(root) {
-        val titleView: TextView = (root as LinearLayout).getChildAt(0) as TextView
-        val textView: TextView = root.getChildAt(1) as TextView
-    }
+    class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val ctx = parent.context
-        val root = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(8, 8, 8, 8)
-        }
-        root.addView(TextView(ctx).apply { textSize = 12f; setTextColor(android.graphics.Color.GRAY) })
-        root.addView(TextView(ctx).apply { maxLines = 2 })
-        return ViewHolder(root).also { vh ->
-            root.setOnClickListener {
-                val pos = vh.layoutPosition
-                if (pos >= 0 && pos < items.size) onClick(items[pos])
-            }
-        }
+        val title = TextView(ctx)
+        title.textSize = 12f
+        title.setTextColor(android.graphics.Color.GRAY)
+        val text = TextView(ctx)
+        text.maxLines = 2
+        val root = LinearLayout(ctx)
+        root.orientation = LinearLayout.VERTICAL
+        root.setPadding(8, 8, 8, 8)
+        root.addView(title)
+        root.addView(text)
+        return ViewHolder(root)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
-        holder.titleView.text = "${item.timestamp} - ${item.source}"
-        holder.textView.text = item.text
+        val root = holder.itemView as LinearLayout
+        (root.getChildAt(0) as TextView).text = "${item.timestamp} - ${item.source}"
+        (root.getChildAt(1) as TextView).text = item.text
+        root.setOnClickListener { onClick(items[position]) }
     }
 
     override fun getItemCount() = items.size
