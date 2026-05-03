@@ -308,9 +308,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                val modelDir = File(ModelManager.getModelDir(this), modelId)
-                val ok = voskEngine.loadModel(modelDir.absolutePath)
-                addDebug("模型加载: ${modelDir.absolutePath} → $ok")
+                val modelPath = ModelManager.getModelPath(this, modelId) ?: File(ModelManager.getModelDir(this), modelId).absolutePath
+                val ok = voskEngine.loadModel(modelPath)
+                addDebug("模型加载: $modelPath → $ok")
                 runOnUiThread {
                     modelLoading = false
                     if (ok) {
@@ -730,6 +730,8 @@ class MainActivity : AppCompatActivity() {
         modelIds.add("")
         items.add("📂 从文件夹导入")
         modelIds.add("import")
+        items.add("📁 选择自定义模型目录")
+        modelIds.add("pick_custom")
 
         AlertDialog.Builder(this)
             .setTitle("选择模型")
@@ -742,6 +744,7 @@ class MainActivity : AppCompatActivity() {
                         if (model != null) downloadAndSwitchModel(model)
                     }
                     action == "import" -> importAndSwitchModel()
+                    action == "pick_custom" -> pickCustomModelDir()
                     action.isNotEmpty() -> switchModel(action)
                 }
             }
@@ -780,6 +783,60 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    private fun pickCustomModelDir() {
+        // 先检查常用路径
+        val candidates = listOf(
+            "/storage/emulated/0/Download/VoskModels/vosk-model-cn-0.22",
+            "/storage/emulated/0/Download/VoskModels",
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath + "/VoskModels"
+        )
+
+        val validDirs = candidates.filter { dir ->
+            val f = File(dir)
+            (f.isDirectory && File(f, "am").exists()) ||
+            f.listFiles()?.any { it.isDirectory && File(it, "am").exists() } == true
+        }
+
+        AlertDialog.Builder(this@MainActivity)
+            .setTitle("选择模型目录")
+            .setMessage("选择或输入已解压的模型目录路径\n（目录内需包含 am/ 文件夹）")
+            .setItems(validDirs.toTypedArray()) { _, which ->
+                val dir = validDirs[which]
+                // 如果是 VoskModels 目录，找下面第一个含 am 的子目录
+                val modelDir = if (File(dir, "am").exists()) dir
+                               else File(dir).listFiles()?.firstOrNull { File(it, "am").exists() }?.absolutePath
+                if (modelDir != null) {
+                    ModelManager.setCustomModelPath(this@MainActivity, modelDir)
+                    switchModel("_custom_")
+                } else {
+                    Toast.makeText(this@MainActivity, "未找到有效模型", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNeutralButton("输入路径") { _, _ ->
+                val input = android.widget.EditText(this@MainActivity).apply {
+                    setText("/storage/emulated/0/Download/VoskModels/vosk-model-cn-0.22")
+                    setSelection(text.length)
+                }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("输入模型目录路径")
+                    .setView(input)
+                    .setPositiveButton("确定") { _, _ ->
+                        val path = input.text.toString().trim()
+                        val dir = File(path)
+                        if (dir.exists() && File(dir, "am").exists()) {
+                            ModelManager.setCustomModelPath(this@MainActivity, path)
+                            switchModel("_custom_")
+                        } else {
+                            Toast.makeText(this@MainActivity, "路径无效或缺少 am/ 目录", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun importAndSwitchModel() {

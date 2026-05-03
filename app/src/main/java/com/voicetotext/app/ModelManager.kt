@@ -76,10 +76,24 @@ object ModelManager {
         return onlineModels.find { it.id == modelId }
     }
 
-    /** 检查模型是否已安装 */
+    /** 检查模型是否已安装（含自定义路径） */
     fun isModelExtracted(context: Context, modelId: String): Boolean {
+        if (modelId == "_custom_") {
+            return getCustomModelPath(context) != null
+        }
         val dir = File(getModelDir(context), modelId)
         return dir.exists() && File(dir, "am").exists()
+    }
+
+    /** 获取模型实际目录路径（支持自定义路径） */
+    fun getModelPath(context: Context, modelId: String): String? {
+        return when {
+            modelId == "_custom_" -> getCustomModelPath(context)
+            else -> {
+                val dir = File(getModelDir(context), modelId)
+                if (dir.exists() && File(dir, "am").exists()) dir.absolutePath else null
+            }
+        }
     }
 
     /** 从 assets 解压模型（兼容旧调用名） */
@@ -87,9 +101,32 @@ object ModelManager {
         return extractAssetModel(context, modelId)
     }
 
+    private const val PREFS_CUSTOM_PATH = "custom_model_path"
+
     /** 获取模型存储根目录 */
     fun getModelDir(context: Context): File {
         return File(context.filesDir, MODELS_DIR)
+    }
+
+    /** 获取或设置自定义模型路径 — 指向手机上任一已解压的模型目录 */
+    fun getCustomModelPath(context: Context): String? {
+        val path = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(PREFS_CUSTOM_PATH, null)
+        if (path != null) {
+            val dir = File(path)
+            if (dir.exists() && File(dir, "am").exists()) return path
+        }
+        return null
+    }
+
+    fun setCustomModelPath(context: Context, path: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(PREFS_CUSTOM_PATH, path).apply()
+    }
+
+    fun clearCustomModelPath(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().remove(PREFS_CUSTOM_PATH).apply()
     }
 
     /** 获取手机共享目录（用于导入）——用户在此目录放 zip 模型文件 */
@@ -104,12 +141,12 @@ object ModelManager {
         return File(context.cacheDir, DOWNLOAD_DIR).also { it.mkdirs() }
     }
 
-    /** 扫描已安装的模型 */
+    /** 扫描已安装的模型（含自定义路径） */
     fun scanInstalledModels(context: Context): List<InstalledModel> {
-        val modelsDir = getModelDir(context)
         val result = mutableListOf<InstalledModel>()
 
         // 从 models 目录扫描
+        val modelsDir = getModelDir(context)
         if (modelsDir.exists()) {
             modelsDir.listFiles()?.forEach { dir ->
                 if (dir.isDirectory && File(dir, "am").exists()) {
@@ -127,10 +164,25 @@ object ModelManager {
             }
         }
 
+        // 自定义路径 — 直接指向外部目录，不复制
+        val customPath = getCustomModelPath(context)
+        if (customPath != null && !result.any { it.path == customPath }) {
+            val dir = File(customPath)
+            val size = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            result.add(InstalledModel(
+                id = "_custom_",
+                name = "📁 自定义: ${dir.name}",
+                lang = "中文",
+                sizeBytes = size,
+                path = dir.absolutePath,
+                source = "自定义路径"
+            ))
+        }
+
         return result.sortedByDescending { it.sizeBytes }
     }
 
-    /** 从 assets 解压内置模型 */
+    /** 从 assets 解压内置模型（支持 .zip 和 .tar.gz） */
     fun extractAssetModel(context: Context, modelId: String): Boolean {
         val destDir = File(getModelDir(context), modelId)
         if (destDir.exists()) {
@@ -138,37 +190,79 @@ object ModelManager {
             return true
         }
 
-        val assetPath = "models/$modelId.zip"
-        return try {
-            destDir.mkdirs()
-            context.assets.open(assetPath).use { input ->
-                java.util.zip.ZipInputStream(input).use { zis ->
-                    var entry = zis.nextEntry
-                    while (entry != null) {
-                        if (!entry.isDirectory) {
-                            val outFile = File(destDir, entry.name)
-                            outFile.parentFile?.mkdirs()
-                            outFile.outputStream().use { out -> zis.copyTo(out) }
-                        }
-                        zis.closeEntry()
-                        entry = zis.nextEntry
-                    }
+        destDir.mkdirs()
+
+        // 尝试 tar.gz
+        var success = try {
+            context.assets.open("models/$modelId.tar.gz").use { input ->
+                extractAssetTarGz(input, destDir)
+            }
+        } catch (_: Exception) { false }
+
+        // 尝试 zip
+        if (!success) {
+            success = try {
+                context.assets.open("models/$modelId.zip").use { input ->
+                    extractAssetZip(input, destDir)
                 }
-            }
-            if (!File(destDir, "am").exists()) {
-                destDir.deleteRecursively()
-                return false
-            }
-            Log.i(TAG, "内置模型解压完成: $modelId")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "内置模型解压失败: ${e.message}", e)
-            destDir.deleteRecursively()
-            false
+            } catch (_: Exception) { false }
         }
+
+        if (success && File(destDir, "am").exists()) {
+            Log.i(TAG, "内置模型解压完成: $modelId")
+            return true
+        }
+        destDir.deleteRecursively()
+        Log.e(TAG, "内置模型解压失败: $modelId")
+        return false
     }
 
-    /** 从导入目录扫描并导入模型（支持 .zip 和 .tar.gz） */
+    private fun extractAssetZip(input: java.io.InputStream, destDir: File): Boolean {
+        java.util.zip.ZipInputStream(input).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory) {
+                    val name = entry.name.substringAfter("/")
+                    if (name.isNotEmpty()) {
+                        val outFile = File(destDir, name)
+                        outFile.parentFile?.mkdirs()
+                        outFile.outputStream().use { out -> zis.copyTo(out) }
+                    }
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+        return true
+    }
+
+    private fun extractAssetTarGz(input: java.io.InputStream, destDir: File): Boolean {
+        val buffer = ByteArray(8192)
+        GZIPInputStream(input).use { gzis ->
+            org.apache.commons.compress.archivers.tar.TarArchiveInputStream(gzis).use { tis ->
+                var entry = tis.nextTarEntry
+                while (entry != null) {
+                    if (!entry.isDirectory) {
+                        val name = entry.name.substringAfter("/")
+                        if (name.isNotEmpty()) {
+                            val outFile = File(destDir, name)
+                            outFile.parentFile?.mkdirs()
+                            outFile.outputStream().use { out ->
+                                var bytesRead: Int
+                                while (tis.read(buffer).also { bytesRead = it } != -1) {
+                                    out.write(buffer, 0, bytesRead)
+                                }
+                            }
+                        }
+                    }
+                    entry = tis.nextTarEntry
+                }
+            }
+        }
+        return true
+    }
+
+    /** 从导入目录扫描并导入模型（支持 .zip、.tar.gz 和已解压目录） */
     fun importFromDirectory(context: Context): List<String> {
         val imported = mutableListOf<String>()
         val importDir = getImportDir(context)
@@ -177,9 +271,13 @@ object ModelManager {
         importDir.listFiles()?.forEach { file ->
             val isZip = file.name.endsWith(".zip") && !file.name.endsWith(".tar.gz")
             val isTarGz = file.name.endsWith(".tar.gz")
-            if (isZip || isTarGz) {
-                val modelId = if (isZip) file.name.removeSuffix(".zip")
-                              else file.name.removeSuffix(".tar.gz")
+            val isModelDir = file.isDirectory && File(file, "am").exists()
+            if (isZip || isTarGz || isModelDir) {
+                val modelId = when {
+                    isZip -> file.name.removeSuffix(".zip")
+                    isTarGz -> file.name.removeSuffix(".tar.gz")
+                    else -> file.name
+                }
                 val destDir = File(getModelDir(context), modelId)
                 if (destDir.exists()) {
                     Log.i(TAG, "模型已存在，跳过导入: $modelId")
@@ -187,15 +285,17 @@ object ModelManager {
                     return@forEach
                 }
                 try {
-                    destDir.mkdirs()
-                    if (isZip) {
-                        extractZip(file, destDir)
-                    } else {
-                        extractTarGz(file, destDir)
+                    when {
+                        isModelDir -> {
+                            // 直接复制已解压的模型目录
+                            file.copyRecursively(destDir, overwrite = false)
+                        }
+                        isZip -> extractZip(file, destDir)
+                        else -> extractTarGz(file, destDir)
                     }
                     if (File(destDir, "am").exists()) {
                         imported.add("成功: $modelId")
-                        file.delete()
+                        if (!isModelDir) file.delete()
                     } else {
                         destDir.deleteRecursively()
                         imported.add("失败: $modelId (无效模型)")
