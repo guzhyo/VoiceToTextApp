@@ -309,6 +309,14 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val modelPath = ModelManager.getModelPath(this, modelId) ?: File(ModelManager.getModelDir(this), modelId).absolutePath
+                val modelDir = File(modelPath)
+                val fileList = modelDir.listFiles()?.map { it.name }?.joinToString(", ") ?: "空目录"
+                val hasAm = File(modelDir, "am").exists()
+                val amContent = if (hasAm) File(modelDir, "am").listFiles()?.map { "${it.name}(${it.length()/1024/1024}MB)" }?.joinToString(", ") ?: "空" else "不存在"
+                addDebug("模型路径: $modelPath")
+                addDebug("目录存在: ${modelDir.exists()}, 含am: $hasAm")
+                addDebug("目录内容: $fileList")
+                addDebug("am内容: $amContent")
                 val ok = voskEngine.loadModel(modelPath)
                 addDebug("模型加载: $modelPath → $ok")
                 runOnUiThread {
@@ -801,15 +809,45 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this@MainActivity)
             .setTitle("选择模型目录")
-            .setMessage("选择或输入已解压的模型目录路径\n（目录内需包含 am/ 文件夹）")
+            .setMessage("选择已解压的模型目录路径\n（目录内需包含 am/ 文件夹）")
             .setItems(validDirs.toTypedArray()) { _, which ->
                 val dir = validDirs[which]
                 // 如果是 VoskModels 目录，找下面第一个含 am 的子目录
                 val modelDir = if (File(dir, "am").exists()) dir
                                else File(dir).listFiles()?.firstOrNull { File(it, "am").exists() }?.absolutePath
                 if (modelDir != null) {
-                    ModelManager.setCustomModelPath(this@MainActivity, modelDir)
-                    switchModel("_custom_")
+                    // 复制到 App 内部存储（避免外部存储权限问题）
+                    val modelId = File(modelDir).name
+                    val destDir = File(ModelManager.getModelDir(this@MainActivity), modelId)
+                    if (destDir.exists()) {
+                        Toast.makeText(this@MainActivity, "模型已存在，直接切换", Toast.LENGTH_SHORT).show()
+                        ModelManager.setCurrentModelId(this@MainActivity, modelId)
+                        switchModel(modelId)
+                    } else {
+                        tvStatus.text = "⏳ 正在复制模型（约2GB，请稍候）..."
+                        tvPartial.text = modelDir
+                        Thread {
+                            try {
+                                File(modelDir).copyRecursively(destDir, overwrite = false)
+                                runOnUiThread {
+                                    if (File(destDir, "am").exists()) {
+                                        ModelManager.setCurrentModelId(this@MainActivity, modelId)
+                                        switchModel(modelId)
+                                    } else {
+                                        destDir.deleteRecursively()
+                                        Toast.makeText(this@MainActivity, "复制失败：模型不完整", Toast.LENGTH_LONG).show()
+                                        tvStatus.text = "✅ 就绪"
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                runOnUiThread {
+                                    destDir.deleteRecursively()
+                                    Toast.makeText(this@MainActivity, "复制失败: ${e.message}", Toast.LENGTH_LONG).show()
+                                    tvStatus.text = "✅ 就绪"
+                                }
+                            }
+                        }.start()
+                    }
                 } else {
                     Toast.makeText(this@MainActivity, "未找到有效模型", Toast.LENGTH_SHORT).show()
                 }
@@ -821,13 +859,43 @@ class MainActivity : AppCompatActivity() {
                 }
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("输入模型目录路径")
+                    .setMessage("输入已解压的模型目录路径\n（目录内需包含 am/ 文件夹）")
                     .setView(input)
                     .setPositiveButton("确定") { _, _ ->
                         val path = input.text.toString().trim()
                         val dir = File(path)
                         if (dir.exists() && File(dir, "am").exists()) {
-                            ModelManager.setCustomModelPath(this@MainActivity, path)
-                            switchModel("_custom_")
+                            val modelId = dir.name
+                            val destDir = File(ModelManager.getModelDir(this@MainActivity), modelId)
+                            if (destDir.exists()) {
+                                Toast.makeText(this@MainActivity, "模型已存在，直接切换", Toast.LENGTH_SHORT).show()
+                                ModelManager.setCurrentModelId(this@MainActivity, modelId)
+                                switchModel(modelId)
+                            } else {
+                                tvStatus.text = "⏳ 正在复制模型..."
+                                tvPartial.text = path
+                                Thread {
+                                    try {
+                                        dir.copyRecursively(destDir, overwrite = false)
+                                        runOnUiThread {
+                                            if (File(destDir, "am").exists()) {
+                                                ModelManager.setCurrentModelId(this@MainActivity, modelId)
+                                                switchModel(modelId)
+                                            } else {
+                                                destDir.deleteRecursively()
+                                                Toast.makeText(this@MainActivity, "复制失败：模型不完整", Toast.LENGTH_LONG).show()
+                                                tvStatus.text = "✅ 就绪"
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        runOnUiThread {
+                                            destDir.deleteRecursively()
+                                            Toast.makeText(this@MainActivity, "复制失败: ${e.message}", Toast.LENGTH_LONG).show()
+                                            tvStatus.text = "✅ 就绪"
+                                        }
+                                    }
+                                }.start()
+                            }
                         } else {
                             Toast.makeText(this@MainActivity, "路径无效或缺少 am/ 目录", Toast.LENGTH_SHORT).show()
                         }
