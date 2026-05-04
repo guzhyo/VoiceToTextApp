@@ -36,7 +36,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etResult: EditText
     private lateinit var tvPartial: TextView
     private lateinit var btnHistory: Button
-    private lateinit var tvDebug: TextView  // 调试信息
 
     // 会议记录分段列表
     private lateinit var rvSegments: RecyclerView
@@ -283,7 +282,7 @@ class MainActivity : AppCompatActivity() {
 
                     // 尝试从 assets 解压（内置模型）
                     val extracted = ModelManager.extractModelFromAssets(this, modelId)
-                    addDebug("模型解压: $modelId → $extracted")
+                    Log.i("VoskDebug", "模型解压: $modelId → $extracted")
                     if (!extracted) {
                         runOnUiThread {
                             modelLoading = false
@@ -299,12 +298,12 @@ class MainActivity : AppCompatActivity() {
                 val fileList = modelDir.listFiles()?.map { it.name }?.joinToString(", ") ?: "空目录"
                 val hasAm = File(modelDir, "am").exists()
                 val amContent = if (hasAm) File(modelDir, "am").listFiles()?.map { "${it.name}(${it.length()/1024/1024}MB)" }?.joinToString(", ") ?: "空" else "不存在"
-                addDebug("模型路径: $modelPath")
-                addDebug("目录存在: ${modelDir.exists()}, 含am: $hasAm")
-                addDebug("目录内容: $fileList")
-                addDebug("am内容: $amContent")
+                Log.i("VoskDebug", "模型路径: $modelPath")
+                Log.i("VoskDebug", "目录存在: ${modelDir.exists()}, 含am: $hasAm")
+                Log.i("VoskDebug", "目录内容: $fileList")
+                Log.i("VoskDebug", "am内容: $amContent")
                 val ok = voskEngine.loadModel(modelPath)
-                addDebug("模型加载: $modelPath → $ok")
+                Log.i("VoskDebug", "模型加载: $modelPath → $ok")
                 runOnUiThread {
                     modelLoading = false
                     if (ok) {
@@ -375,7 +374,7 @@ class MainActivity : AppCompatActivity() {
             currentRecognizer = voskEngine.createRecognizer(true)
 
             Log.i("VoskDebug", "startAudioCapture: rec=$currentRecognizer isMeeting=$isMeetingMode")
-            addDebug("录音启动: recognizer=$currentRecognizer, 模式=${if(isMeetingMode)"会议" else "普通"}")
+            Log.i("VoskDebug", "录音启动: recognizer=$currentRecognizer, 模式=${if(isMeetingMode)"会议" else "普通"}")
 
             if (isMeetingMode) {
                 // 会议模式：启用端指针，自动切分段落
@@ -414,7 +413,7 @@ class MainActivity : AppCompatActivity() {
                             val resultJson = rec.getResult()
                             val text = voskEngine.extractText(resultJson)
                             Log.i("VoskDebug", "会议分段: '$text' (from $resultJson)")
-                            addDebug("会议分段: ${text.take(30)}")
+                            Log.i("VoskDebug", "会议分段: ${text.take(30)}")
                             if (text.isNotEmpty()) {
                                 val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                                 val seg = MeetingSegment(ts, text)
@@ -482,7 +481,7 @@ class MainActivity : AppCompatActivity() {
             val altResult = currentRecognizer?.getResult() ?: "{}"
             val altText = voskEngine.extractText(altResult)
             Log.i("VoskDebug", "stopRecording: getResult()=$altResult altText='$altText'")
-            addDebug("停止录音: finalText='${finalText.take(40)}'")
+            Log.i("VoskDebug", "停止录音: finalText='${finalText.take(40)}'")
 
             if (isMeetingMode) {
                 // 会议模式：检查是否有残留分段
@@ -660,23 +659,6 @@ class MainActivity : AppCompatActivity() {
         segmentAdapter.notifyDataSetChanged()
         updateSegmentsVisibility()
         tvPartial.text = "（已清空）"
-    }
-
-    /** 添加调试信息 */
-    private fun addDebug(msg: String) {
-        val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        Log.i("VoskDebug", msg)
-        runOnUiThread {
-            val current = tvDebug.text.toString()
-            val line = "$ts $msg"
-            tvDebug.text = if (current == "点击查看调试信息" || current.isEmpty()) {
-                line
-            } else {
-                val lines = current.split("\n")
-                val keep = lines.takeLast(7)
-                (keep + line).joinToString("\n")
-            }
-        }
     }
 
     private fun exportMeetingSegments() {
