@@ -222,7 +222,7 @@ object ModelManager {
             var entry = zis.nextEntry
             while (entry != null) {
                 if (!entry.isDirectory) {
-                    val name = entry.name.substringAfter("/")
+                    val name = stripTopDir(entry.name)
                     if (name.isNotEmpty()) {
                         val outFile = File(destDir, name)
                         outFile.parentFile?.mkdirs()
@@ -243,7 +243,7 @@ object ModelManager {
                 var entry = tis.nextTarEntry
                 while (entry != null) {
                     if (!entry.isDirectory) {
-                        val name = entry.name.substringAfter("/")
+                        val name = stripTopDir(entry.name)
                         if (name.isNotEmpty()) {
                             val outFile = File(destDir, name)
                             outFile.parentFile?.mkdirs()
@@ -260,6 +260,19 @@ object ModelManager {
             }
         }
         return true
+    }
+
+    /** 统一路径剥离：如果有公共顶层目录则去掉，否则原样使用 */
+    private fun stripTopDir(path: String): String {
+        val slash = path.indexOf("/")
+        if (slash < 0) return path
+        // 只去掉第一级目录（如果后面还有斜杠说明有子目录，保留子目录路径）
+        // 例如: "vosk-model-cn-0.22/am/final.mdl" → "am/final.mdl"
+        // 例如: "am/final.mdl" → "am/final.mdl"（因为顶层目录 am 不是模型名，而是模型内部目录）
+        // 推理：看第一级目录下是否有 "am/" 或 "graph/" 等模型特征目录
+        // 但无法扫描全部条目，所以保守处理：如果第一级过后还有至少一层目录，就去掉第一级
+        val afterFirst = path.substring(slash + 1)
+        return if (afterFirst.contains("/")) afterFirst else path
     }
 
     /** 从导入目录扫描并导入模型（支持 .zip、.tar.gz 和已解压目录） */
@@ -314,7 +327,7 @@ object ModelManager {
             var entry = zis.nextEntry
             while (entry != null) {
                 if (!entry.isDirectory) {
-                    val name = entry.name.substringAfter("/")
+                    val name = stripTopDir(entry.name)
                     if (name.isNotEmpty()) {
                         val outFile = File(destDir, name)
                         outFile.parentFile?.mkdirs()
