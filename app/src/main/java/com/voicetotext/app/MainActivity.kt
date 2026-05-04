@@ -83,10 +83,11 @@ class MainActivity : AppCompatActivity() {
     // ===================== UI 构建 =====================
 
     private fun buildUI() {
-        val scroll = ScrollView(this)
+        // 不使用 ScrollView 包裹整个布局，改为独立处理可滚动区域
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 16, 16, 16)
+            layoutParams = LinearLayout.LayoutParams(-1, -1)
         }
 
         // 标题 + 状态 + 当前模型
@@ -133,19 +134,6 @@ class MainActivity : AppCompatActivity() {
             maxLines = 2
         }
         root.addView(tvPartial)
-
-        // 调试信息面板（点击展开/折叠）
-        tvDebug = TextView(this).apply {
-            text = "点击查看调试信息"
-            textSize = 11f
-            setTextColor(android.graphics.Color.argb(180, 100, 100, 100))
-            minLines = 1
-            maxLines = 8
-            setOnClickListener {
-                if (maxLines == 1) maxLines = 8 else maxLines = 1
-            }
-        }
-        root.addView(tvDebug)
 
         // 编辑按钮行
         val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -199,12 +187,11 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(row2)
 
-        // 识别结果编辑框（普通模式用）
+        // 识别结果编辑框 — 用 weight=1 撑满剩余空间
         etResult = EditText(this).apply {
             hint = "识别结果（可编辑）"
             gravity = android.view.Gravity.TOP
             textSize = 15f
-            minHeight = 150
         }
         root.addView(etResult, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -256,8 +243,7 @@ class MainActivity : AppCompatActivity() {
         layoutSegments.visibility = android.view.View.GONE
         root.addView(layoutSegments)
 
-        scroll.addView(root)
-        setContentView(scroll)
+        setContentView(root)
     }
 
     private fun updateSegmentsVisibility() {
